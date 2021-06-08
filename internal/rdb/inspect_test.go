@@ -1,10 +1,10 @@
-// Copyright 2020 Kentaro Hibino. All rights reserved.
 // Use of this source code is governed by a MIT license
 // that can be found in the LICENSE file.
 
 package rdb
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -3113,6 +3113,73 @@ func TestDeletePendingTask(t *testing.T) {
 			if diff := cmp.Diff(want, gotPending, h.SortMsgOpt); diff != "" {
 				t.Errorf("mismatch found in %q; (-want, +got)\n%s", base.PendingKey(qname), diff)
 			}
+		}
+	}
+}
+
+func TestDeleteTaskWithUniqueLock(t *testing.T) {
+	r := setup(t)
+	defer r.Close()
+	m1 := &base.TaskMessage{
+		ID:        uuid.New(),
+		Type:      "email",
+		Payload:   h.JSON(map[string]interface{}{"user_id": json.Number("123")}),
+		Queue:     base.DefaultQueueName,
+		UniqueKey: base.UniqueKey(base.DefaultQueueName, "email", h.JSON(map[string]interface{}{"user_id": 123})),
+	}
+	t1 := time.Now().Add(3 * time.Hour)
+
+	tests := []struct {
+		scheduled     map[string][]base.Z
+		qname         string
+		id            uuid.UUID
+		uniqueKey     string
+		wantScheduled map[string][]*base.TaskMessage
+	}{
+		{
+			scheduled: map[string][]base.Z{
+				"default": {
+					{Message: m1, Score: t1.Unix()},
+				},
+			},
+			qname:     "default",
+			id:        m1.ID,
+			uniqueKey: m1.UniqueKey,
+			wantScheduled: map[string][]*base.TaskMessage{
+				"default": {},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		h.FlushDB(t, r.client) // clean up db before each test case
+		h.SeedAllScheduledQueues(t, r.client, tc.scheduled)
+		// TODO: move this logic to "Seed" function
+		for _, zs := range tc.scheduled {
+			for _, z := range zs {
+				if len(z.Message.UniqueKey) > 0 {
+					err := r.client.SetNX(z.Message.UniqueKey, z.Message.ID.String(), time.Minute).Err()
+					if err != nil {
+						t.Fatalf("Failed to set unique lock in redis: %v", err)
+					}
+				}
+			}
+		}
+
+		if got := r.DeleteTask(tc.qname, tc.id); got != nil {
+			t.Errorf("r.DeleteTask(%q, %v) returned error: %v", tc.qname, tc.id, got)
+			continue
+		}
+
+		for qname, want := range tc.wantScheduled {
+			gotScheduled := h.GetScheduledMessages(t, r.client, qname)
+			if diff := cmp.Diff(want, gotScheduled, h.SortMsgOpt); diff != "" {
+				t.Errorf("mismatch found in %q; (-want, +got)\n%s", base.ScheduledKey(qname), diff)
+			}
+		}
+
+		if r.client.Exists(tc.uniqueKey).Val() != 0 {
+			t.Errorf("Uniqueness lock %q still exists", tc.uniqueKey)
 		}
 	}
 }

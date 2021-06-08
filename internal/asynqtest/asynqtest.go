@@ -283,10 +283,11 @@ func seedRedisList(tb testing.TB, c redis.UniversalClient, key string,
 		}
 		key := base.TaskKey(msg.Queue, msg.ID.String())
 		data := map[string]interface{}{
-			"msg":      encoded,
-			"state":    state.String(),
-			"timeout":  msg.Timeout,
-			"deadline": msg.Deadline,
+			"msg":        encoded,
+			"state":      state.String(),
+			"timeout":    msg.Timeout,
+			"deadline":   msg.Deadline,
+			"unique_key": msg.UniqueKey,
 		}
 		if err := c.HSet(key, data).Err(); err != nil {
 			tb.Fatal(err)
@@ -306,10 +307,11 @@ func seedRedisZSet(tb testing.TB, c redis.UniversalClient, key string,
 		}
 		key := base.TaskKey(msg.Queue, msg.ID.String())
 		data := map[string]interface{}{
-			"msg":      encoded,
-			"state":    state.String(),
-			"timeout":  msg.Timeout,
-			"deadline": msg.Deadline,
+			"msg":        encoded,
+			"state":      state.String(),
+			"timeout":    msg.Timeout,
+			"deadline":   msg.Deadline,
+			"unique_key": msg.UniqueKey,
 		}
 		if err := c.HSet(key, data).Err(); err != nil {
 			tb.Fatal(err)
