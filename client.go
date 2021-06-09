@@ -24,7 +24,7 @@ import (
 //
 // Clients are safe for concurrent use by multiple goroutines.
 type Client struct {
-	mu   sync.Mutex
+	mu   sync.RWMutex
 	opts map[string][]Option
 	rdb  *rdb.RDB
 }
@@ -304,12 +304,14 @@ func (c *Client) Close() error {
 // By deafult, max retry is set to 25 and timeout is set to 30 minutes.
 // If no ProcessAt or ProcessIn options are passed, the task will be processed immediately.
 func (c *Client) Enqueue(task *Task, opts ...Option) (*Result, error) {
-	c.mu.Lock()
+	var useOpts []Option
+	c.mu.RLock()
 	if defaults, ok := c.opts[task.Type]; ok {
-		opts = append(defaults, opts...)
+		useOpts = append(useOpts, defaults...)
 	}
-	c.mu.Unlock()
-	opt, err := composeOptions(opts...)
+	c.mu.RUnlock()
+	useOpts = append(useOpts, opts...)
+	opt, err := composeOptions(useOpts...)
 	if err != nil {
 		return nil, err
 	}
